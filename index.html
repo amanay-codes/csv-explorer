@@ -6,6 +6,7 @@
   <title>csv explorer</title>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -379,10 +380,10 @@
 
   <!-- upload -->
   <div id="drop-zone" onclick="document.getElementById('file-input').click()">
-    <input type="file" id="file-input" accept=".csv" onchange="handleFile(this.files[0])"/>
+    <input type="file" id="file-input" accept=".csv,.xlsx,.xls" onchange="handleFile(this.files[0])"/>
     <span class="drop-icon">📂</span>
-    <div class="drop-title">drop your CSV here</div>
-    <div class="drop-sub">or click to browse — all processing happens in your browser</div>
+    <div class="drop-title">drop your file here</div>
+    <div class="drop-sub">supports CSV, XLSX, and XLS — all processing happens in your browser</div>
     <button class="drop-btn" onclick="e => e.stopPropagation()">choose file</button>
   </div>
 
@@ -470,26 +471,56 @@
     e.preventDefault();
     dropZone.classList.remove('drag-over');
     const file = e.dataTransfer.files[0];
-    if (file && file.name.endsWith('.csv')) handleFile(file);
-    else alert('please drop a .csv file');
+    const ext = file?.name.split('.').pop().toLowerCase();
+    if (file && ['csv','xlsx','xls'].includes(ext)) handleFile(file);
+    else alert('please drop a .csv, .xlsx, or .xls file');
   });
 
   function handleFile(file) {
     if (!file) return;
 
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      dynamicTyping: true,   // auto-converts numbers — super handy
-      complete: function(result) {
-        allRows   = result.data;
-        headers   = result.meta.fields;
-        renderAll(file);
-      },
-      error: function(err) {
-        alert('could not parse file: ' + err.message);
-      }
-    });
+    const name = file.name.toLowerCase();
+
+    if (name.endsWith('.csv')) {
+      // csv path — same as before
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        dynamicTyping: true,
+        complete: function(result) {
+          allRows = result.data;
+          headers = result.meta.fields;
+          renderAll(file);
+        },
+        error: function(err) {
+          alert('could not parse file: ' + err.message);
+        }
+      });
+
+    } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+      // excel path — read as binary then convert with SheetJS
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const workbook   = XLSX.read(e.target.result, { type: 'binary' });
+          const firstSheet = workbook.SheetNames[0];  // just use the first sheet
+          const worksheet  = workbook.Sheets[firstSheet];
+          const jsonData   = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+          if (jsonData.length === 0) { alert('the sheet appears to be empty'); return; }
+
+          allRows = jsonData;
+          headers = Object.keys(jsonData[0]);
+          renderAll(file);
+        } catch(err) {
+          alert('could not read Excel file: ' + err.message);
+        }
+      };
+      reader.readAsBinaryString(file);
+
+    } else {
+      alert('please upload a .csv, .xlsx, or .xls file');
+    }
   }
 
   function renderAll(file) {
