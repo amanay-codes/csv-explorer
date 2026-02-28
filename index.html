@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>csv explorer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #f5f0e8;       /* warm paper */
+      --surface:  #edeae0;
+      --card:     #ffffff;
+      --border:   #d4cfc3;
+      --text:     #1c1a17;
+      --muted:    #8a8375;
+      --accent:   #c0392b;       /* deep red — like ink */
+      --accent2:  #2c6e49;       /* forest green for secondary */
+      --accent3:  #e67e22;       /* burnt orange */
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'IBM Plex Mono', monospace;
+      min-height: 100vh;
+    }
+
+    /* noise texture overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 48px 24px 80px; }
+
+    /* ---- header ---- */
+    .site-header { margin-bottom: 56px; border-bottom: 2px solid var(--text); padding-bottom: 20px; }
+
+    .header-top { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
+
+    .site-title {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.4rem, 7vw, 4.2rem);
+      font-weight: 900;
+      line-height: 0.95;
+      letter-spacing: -1px;
+    }
+
+    .site-title em { color: var(--accent); font-style: normal; }
+
+    .header-meta {
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      text-align: right;
+      line-height: 1.8;
+    }
+
+    /* ---- drop zone ---- */
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 4px;
+      padding: 64px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      margin-bottom: 40px;
+      background: var(--surface);
+    }
+
+    #drop-zone.drag-over { border-color: var(--accent); background: #fdf5f4; }
+    #drop-zone:hover     { border-color: var(--text); }
+
+    #drop-zone input { display: none; }
+
+    .drop-icon {
+      font-size: 2.4rem;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .drop-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .drop-sub { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+
+    .drop-btn {
+      display: inline-block;
+      margin-top: 20px;
+      background: var(--text);
+      color: var(--bg);
+      padding: 10px 28px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 1px;
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .drop-btn:hover { background: var(--accent); }
+
+    /* ---- results (hidden until file loaded) ---- */
+    #results { display: none; }
+
+    /* ---- file info bar ---- */
+    .file-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: var(--text);
+      color: var(--bg);
+      padding: 12px 20px;
+      margin-bottom: 32px;
+      font-size: 12px;
+    }
+
+    .file-bar strong { font-size: 14px; }
+
+    .file-bar-right { display: flex; gap: 20px; font-size: 11px; opacity: 0.75; }
+
+    .btn-reset {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.3);
+      color: var(--bg);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      padding: 4px 14px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .btn-reset:hover { border-color: white; }
+
+    /* ---- section titles ---- */
+    .section-label {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .section { margin-bottom: 44px; }
+
+    /* ---- stats grid ---- */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 18px 16px;
+    }
+
+    .stat-card .s-val {
+      font-family: 'Playfair Display', serif;
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--accent);
+    }
+
+    .stat-card .s-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    /* ---- column cards ---- */
+    .col-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .col-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--border);
+      padding: 16px;
+      transition: border-top-color 0.2s;
+    }
+
+    .col-card.type-num  { border-top-color: var(--accent); }
+    .col-card.type-str  { border-top-color: var(--accent2); }
+    .col-card.type-date { border-top-color: var(--accent3); }
+
+    .col-name {
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .col-type-badge {
+      display: inline-block;
+      font-size: 9px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 2px;
+      margin-bottom: 12px;
+    }
+
+    .type-num  .col-type-badge { background: #fdecea; color: var(--accent); }
+    .type-str  .col-type-badge { background: #eaf4ee; color: var(--accent2); }
+    .type-date .col-type-badge { background: #fef6ec; color: var(--accent3); }
+
+    .col-stats { font-size: 11px; color: var(--muted); line-height: 2; }
+    .col-stats span { color: var(--text); font-weight: 500; }
+
+    /* null bar */
+    .null-bar-wrap { margin-top: 10px; }
+    .null-bar-label { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+    .null-bar-track { background: var(--surface); height: 4px; border-radius: 2px; overflow: hidden; }
+    .null-bar-fill  { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.6s ease; }
+
+    /* ---- data table ---- */
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      background: var(--card);
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+
+    thead { background: var(--text); color: var(--bg); }
+
+    thead th {
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+
+    tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+    tbody tr:hover { background: var(--surface); }
+    tbody tr:last-child { border-bottom: none; }
+
+    td {
+      padding: 9px 14px;
+      color: var(--muted);
+      max-width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    td.is-num { color: var(--accent); }
+    td.is-empty { color: var(--border); font-style: italic; }
+
+    .table-footer {
+      padding: 10px 14px;
+      font-size: 11px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    /* ---- search ---- */
+    .table-controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .search-input {
+      background: var(--card);
+      border: 1px solid var(--border);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      padding: 8px 14px;
+      color: var(--text);
+      outline: none;
+      flex: 1;
+      min-width: 180px;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus { border-color: var(--text); }
+
+    .rows-select {
+      background: var(--card);
+      border: 1px solid var(--border);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      padding: 8px 10px;
+      color: var(--text);
+      outline: none;
+      cursor: pointer;
+    }
+
+    /* ---- charts ---- */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 20px;
+    }
+
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 20px;
+    }
+
+    .chart-card h4 {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    .chart-card canvas { max-height: 220px; }
+
+    /* ---- footer ---- */
+    .site-footer {
+      margin-top: 60px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- header -->
+  <header class="site-header">
+    <div class="header-top">
+      <h1 class="site-title">csv<br/><em>explorer</em></h1>
+      <div class="header-meta">
+        drop a file.<br/>
+        get instant insights.<br/>
+        no server. no signup.
+      </div>
+    </div>
+  </header>
+
+  <!-- upload -->
+  <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <input type="file" id="file-input" accept=".csv" onchange="handleFile(this.files[0])"/>
+    <span class="drop-icon">📂</span>
+    <div class="drop-title">drop your CSV here</div>
+    <div class="drop-sub">or click to browse — all processing happens in your browser</div>
+    <button class="drop-btn" onclick="e => e.stopPropagation()">choose file</button>
+  </div>
+
+  <!-- results -->
+  <div id="results">
+
+    <!-- file info bar -->
+    <div class="file-bar">
+      <div>
+        <strong id="info-filename">—</strong>
+      </div>
+      <div class="file-bar-right">
+        <span id="info-rows">— rows</span>
+        <span id="info-cols">— columns</span>
+        <span id="info-size">—</span>
+      </div>
+      <button class="btn-reset" onclick="resetApp()">✕ reset</button>
+    </div>
+
+    <!-- overview stats -->
+    <div class="section">
+      <div class="section-label">overview</div>
+      <div class="stats-grid" id="overview-stats"></div>
+    </div>
+
+    <!-- column profiles -->
+    <div class="section">
+      <div class="section-label">column profiles</div>
+      <div class="col-grid" id="col-grid"></div>
+    </div>
+
+    <!-- charts -->
+    <div class="section">
+      <div class="section-label">distributions</div>
+      <div class="charts-grid" id="charts-grid"></div>
+    </div>
+
+    <!-- data table -->
+    <div class="section">
+      <div class="section-label">data preview</div>
+      <div class="table-controls">
+        <input class="search-input" type="text" id="search-input" placeholder="search rows..." oninput="renderTable()"/>
+        <select class="rows-select" id="rows-select" onchange="renderTable()">
+          <option value="20">20 rows</option>
+          <option value="50">50 rows</option>
+          <option value="100">100 rows</option>
+          <option value="all">all rows</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead id="table-head"></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+        <div class="table-footer" id="table-footer"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="site-footer">
+    <span>csv explorer — built by amanay-codes</span>
+    <span>data never leaves your browser</span>
+  </footer>
+
+</div>
+
+<script>
+  // holds parsed data globally so filters/search can re-render without reparsing
+  let allRows = [];
+  let headers = [];
+  let chartInstances = [];  // keep refs so we can destroy before re-rendering
+
+  // ---- drag and drop wiring ----
+  const dropZone = document.getElementById('drop-zone');
+
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.endsWith('.csv')) handleFile(file);
+    else alert('please drop a .csv file');
+  });
+
+  function handleFile(file) {
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: true,   // auto-converts numbers — super handy
+      complete: function(result) {
+        allRows   = result.data;
+        headers   = result.meta.fields;
+        renderAll(file);
+      },
+      error: function(err) {
+        alert('could not parse file: ' + err.message);
+      }
+    });
+  }
+
+  function renderAll(file) {
+    document.getElementById('results').style.display = 'block';
+    document.getElementById('drop-zone').style.display = 'none';
+
+    // file info bar
+    document.getElementById('info-filename').textContent = file.name;
+    document.getElementById('info-rows').textContent     = allRows.length.toLocaleString() + ' rows';
+    document.getElementById('info-cols').textContent     = headers.length + ' columns';
+    document.getElementById('info-size').textContent     = formatBytes(file.size);
+
+    renderOverview();
+    renderColProfiles();
+    renderCharts();
+    renderTable();
+  }
+
+  function renderOverview() {
+    const totalCells  = allRows.length * headers.length;
+    const nullCount   = countNulls();
+    const numCols     = headers.filter(h => isNumericCol(h)).length;
+    const completeness = totalCells > 0 ? (((totalCells - nullCount) / totalCells) * 100).toFixed(1) : 100;
+
+    document.getElementById('overview-stats').innerHTML = `
+      <div class="stat-card"><div class="s-val">${allRows.length.toLocaleString()}</div><div class="s-label">rows</div></div>
+      <div class="stat-card"><div class="s-val">${headers.length}</div><div class="s-label">columns</div></div>
+      <div class="stat-card"><div class="s-val">${numCols}</div><div class="s-label">numeric cols</div></div>
+      <div class="stat-card"><div class="s-val">${headers.length - numCols}</div><div class="s-label">text cols</div></div>
+      <div class="stat-card"><div class="s-val">${nullCount.toLocaleString()}</div><div class="s-label">missing values</div></div>
+      <div class="stat-card"><div class="s-val">${completeness}%</div><div class="s-label">completeness</div></div>
+    `;
+  }
+
+  function renderColProfiles() {
+    const grid = document.getElementById('col-grid');
+    grid.innerHTML = '';
+
+    headers.forEach(col => {
+      const values    = allRows.map(r => r[col]);
+      const nonNull   = values.filter(v => v !== null && v !== '' && v !== undefined);
+      const nulls     = values.length - nonNull.length;
+      const nullPct   = ((nulls / values.length) * 100).toFixed(0);
+      const isNum     = isNumericCol(col);
+      const typeClass = isNum ? 'type-num' : 'type-str';
+      const typeLabel = isNum ? 'numeric' : 'text';
+
+      let extraStats = '';
+      if (isNum) {
+        const nums = nonNull.map(Number).filter(n => !isNaN(n));
+        if (nums.length > 0) {
+          const mn  = Math.min(...nums);
+          const mx  = Math.max(...nums);
+          const avg = nums.reduce((a,b) => a+b, 0) / nums.length;
+          extraStats = `
+            <div>min <span>${fmt(mn)}</span></div>
+            <div>max <span>${fmt(mx)}</span></div>
+            <div>avg <span>${fmt(avg)}</span></div>
+          `;
+        }
+      } else {
+        const unique = new Set(nonNull.map(String)).size;
+        const sample = nonNull.slice(0,3).map(v => String(v).slice(0,18)).join(', ');
+        extraStats = `
+          <div>unique <span>${unique}</span></div>
+          <div>sample <span title="${sample}">${sample.slice(0,30)}${sample.length>30?'…':''}</span></div>
+        `;
+      }
+
+      const card = document.createElement('div');
+      card.className = `col-card ${typeClass}`;
+      card.innerHTML = `
+        <div class="col-name" title="${col}">${col}</div>
+        <div><span class="col-type-badge">${typeLabel}</span></div>
+        <div class="col-stats">
+          <div>total <span>${values.length.toLocaleString()}</span></div>
+          <div>filled <span>${nonNull.length.toLocaleString()}</span></div>
+          ${extraStats}
+        </div>
+        <div class="null-bar-wrap">
+          <div class="null-bar-label">${nullPct}% missing</div>
+          <div class="null-bar-track"><div class="null-bar-fill" style="width:${nullPct}%"></div></div>
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+  }
+
+  function renderCharts() {
+    // destroy old charts first to avoid memory leaks
+    chartInstances.forEach(c => c.destroy());
+    chartInstances = [];
+
+    const grid = document.getElementById('charts-grid');
+    grid.innerHTML = '';
+
+    const numCols = headers.filter(h => isNumericCol(h)).slice(0, 4);  // max 4 charts
+    const strCols = headers.filter(h => !isNumericCol(h)).slice(0, 2); // max 2 bar charts
+
+    numCols.forEach(col => {
+      const values = allRows.map(r => r[col]).filter(v => v !== null && v !== '' && !isNaN(Number(v))).map(Number);
+      if (values.length === 0) return;
+
+      // bucket into ~10 bins for histogram
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const binCount = Math.min(10, Math.ceil(Math.sqrt(values.length)));
+      const binSize  = (max - min) / binCount || 1;
+      const bins     = Array(binCount).fill(0);
+      const labels   = [];
+
+      for (let i = 0; i < binCount; i++) labels.push(fmt(min + i * binSize));
+      values.forEach(v => {
+        let idx = Math.floor((v - min) / binSize);
+        if (idx >= binCount) idx = binCount - 1;
+        bins[idx]++;
+      });
+
+      const card = makeChartCard(col + ' — distribution');
+      const ctx  = card.querySelector('canvas').getContext('2d');
+      chartInstances.push(new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{ data: bins, backgroundColor: '#c0392b33', borderColor: '#c0392b', borderWidth: 1.5, borderRadius: 2 }]
+        },
+        options: chartOpts('count')
+      }));
+    });
+
+    strCols.forEach(col => {
+      const values   = allRows.map(r => r[col]).filter(v => v !== null && v !== '');
+      const freq     = {};
+      values.forEach(v => { const k = String(v); freq[k] = (freq[k] || 0) + 1; });
+      const sorted   = Object.entries(freq).sort((a,b) => b[1]-a[1]).slice(0,10);
+      if (sorted.length === 0) return;
+
+      const card = makeChartCard(col + ' — top values');
+      const ctx  = card.querySelector('canvas').getContext('2d');
+      chartInstances.push(new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: sorted.map(([k]) => k.slice(0,20)),
+          datasets: [{ data: sorted.map(([,v]) => v), backgroundColor: '#2c6e4933', borderColor: '#2c6e49', borderWidth: 1.5, borderRadius: 2 }]
+        },
+        options: { ...chartOpts('count'), indexAxis: 'y' }
+      }));
+    });
+
+    if (grid.children.length === 0) {
+      grid.innerHTML = '<p style="color:var(--muted);font-size:12px">no suitable columns found for charts</p>';
+    }
+  }
+
+  function makeChartCard(title) {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `<h4>${title}</h4><canvas></canvas>`;
+    document.getElementById('charts-grid').appendChild(card);
+    return card;
+  }
+
+  function chartOpts(yLabel) {
+    return {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8a8375', font: { family: 'IBM Plex Mono', size: 10 } }, grid: { color: '#d4cfc322' } },
+        y: { ticks: { color: '#8a8375', font: { family: 'IBM Plex Mono', size: 10 } }, grid: { color: '#d4cfc322' } }
+      }
+    };
+  }
+
+  function renderTable() {
+    const query   = document.getElementById('search-input').value.toLowerCase();
+    const rowsVal = document.getElementById('rows-select').value;
+
+    let filtered = allRows;
+
+    // basic row search — checks all column values
+    if (query) {
+      filtered = allRows.filter(row =>
+        headers.some(h => String(row[h] ?? '').toLowerCase().includes(query))
+      );
+    }
+
+    const total   = filtered.length;
+    const showing = rowsVal === 'all' ? filtered : filtered.slice(0, parseInt(rowsVal));
+
+    // header row
+    document.getElementById('table-head').innerHTML =
+      '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+
+    // data rows
+    document.getElementById('table-body').innerHTML = showing.map(row =>
+      '<tr>' + headers.map(h => {
+        const val = row[h];
+        if (val === null || val === '' || val === undefined) return '<td class="is-empty">—</td>';
+        const isNum = typeof val === 'number';
+        return `<td class="${isNum ? 'is-num' : ''}" title="${val}">${isNum ? fmt(val) : String(val).slice(0, 80)}</td>`;
+      }).join('') + '</tr>'
+    ).join('');
+
+    document.getElementById('table-footer').textContent =
+      `showing ${showing.length.toLocaleString()} of ${total.toLocaleString()} rows${query ? ' (filtered)' : ''}`;
+  }
+
+  // ---- helpers ----
+
+  function isNumericCol(col) {
+    // check first 20 non-null values
+    const sample = allRows.slice(0, 20).map(r => r[col]).filter(v => v !== null && v !== '');
+    if (sample.length === 0) return false;
+    return sample.filter(v => typeof v === 'number' || !isNaN(Number(v))).length > sample.length * 0.7;
+  }
+
+  function countNulls() {
+    let count = 0;
+    allRows.forEach(row => {
+      headers.forEach(h => {
+        if (row[h] === null || row[h] === '' || row[h] === undefined) count++;
+      });
+    });
+    return count;
+  }
+
+  function fmt(n) {
+    if (n === undefined || n === null) return '—';
+    // show decimals only if needed
+    return Number.isInteger(n) ? n.toLocaleString() : parseFloat(n.toFixed(2)).toLocaleString();
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function resetApp() {
+    allRows = [];
+    headers = [];
+    chartInstances.forEach(c => c.destroy());
+    chartInstances = [];
+    document.getElementById('results').style.display = 'none';
+    document.getElementById('drop-zone').style.display = 'block';
+    document.getElementById('file-input').value = '';
+    document.getElementById('search-input').value = '';
+  }
+</script>
+</body>
+</html>
